@@ -115,8 +115,8 @@ feat[["width", "height", "aspect_ratio"]].round(2)
 """)
 
 md("""
-**Interpretation.** Almost every scan has the same height (~1000 px) with widths around 750–800 px – a portrait
-page with aspect ratio ≈ 1.3. Page **shape carries almost no information about the class**, so the model has
+**Interpretation.** Every scan is exactly 1000 px high (the dataset was normalised this way) with widths of
+roughly 750–800 px (class means 756–774 px) - a portrait page with aspect ratio ≈ 1.3. Page **shape carries almost no information about the class**, so the model has
 to learn from the *layout* inside the page. Resizing to a square 224×224 slightly squashes pages, but it is
 the same distortion for every class, so it does not bias the model.
 """)
@@ -132,10 +132,13 @@ feat[["ink_density", "brightness"]].round(3)
 """)
 
 md("""
-**Interpretation.** Document types differ clearly in how much ink they carry: dense, structured types
-(forms, budgets, handwritten notes, questionnaires) have more dark pixels than sparse text types (letters,
-memos). This visual difference is exactly what a CNN can learn. Types with similar ink density
-(e.g. letter vs. memo vs. email) are where we expect the most confusion.
+**Interpretation.** Pages are mostly white paper (mean brightness 236–249 out of 255), but the amount of ink
+differs by type. Handwritten notes (7.1% dark pixels), invoices (6.9%), forms (6.8%) and resumes (6.6%) are the
+densest: handwriting strokes, ruled boxes, tables and compact sections. Emails are by far the sparsest (2.2%):
+short printed messages with lots of white space, so they should be easy to recognise. Budgets (4.2%) are
+sparser than expected - mostly thin columns of numbers. Letters (5.3%) and memos (5.1%) are almost
+identical in ink density and layout, so this is where we expect the most confusion. Ink density alone cannot
+separate all 9 types, which is why a CNN that learns *spatial layout* is needed rather than simple statistics.
 """)
 
 md("""
