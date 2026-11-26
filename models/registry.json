@@ -1,0 +1,34 @@
+{
+  "current": {
+    "version": 1,
+    "file": "doc_classifier_v1.h5",
+    "kind": "initial",
+    "status": "promoted",
+    "created_at": "2026-11-26T17:05:33+00:00",
+    "train_samples": 1152,
+    "training_seconds": 681.0,
+    "metrics": {
+      "accuracy": 0.5222222222222223,
+      "precision_macro": 0.526391794260573,
+      "recall_macro": 0.5222222222222223,
+      "f1_macro": 0.4907075170167269
+    }
+  },
+  "history": [
+    {
+      "version": 1,
+      "file": "doc_classifier_v1.h5",
+      "kind": "initial",
+      "status": "promoted",
+      "created_at": "2026-11-26T17:05:33+00:00",
+      "train_samples": 1152,
+      "training_seconds": 681.0,
+      "metrics": {
+        "accuracy": 0.5222222222222223,
+        "precision_macro": 0.526391794260573,
+        "recall_macro": 0.5222222222222223,
+        "f1_macro": 0.4907075170167269
+      }
+    }
+  ]
+}
