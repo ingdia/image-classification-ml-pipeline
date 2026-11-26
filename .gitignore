@@ -1,0 +1,44 @@
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+.pytest_cache/
+.ipynb_checkpoints/
+
+# Secrets and credentials (never commit)
+.env
+kaggle.json
+*.pem
+*.key
+
+# Data: the full dataset is downloaded by scripts/download_data.py.
+# Only the small sample set in data/samples/ and .gitkeep files are committed.
+data/raw/
+data/train/*
+data/val/*
+data/test/*
+data/uploads/*
+!data/train/.gitkeep
+!data/val/.gitkeep
+!data/test/.gitkeep
+!data/uploads/.gitkeep
+
+# Models: only the promoted model, registry and metrics are committed
+models/candidates/
+models/*.tmp
+
+# Runtime state
+runtime/
+
+# Frontend
+frontend/node_modules/
+frontend/dist/
+
+# Locust raw run output (summarised results are committed)
+locust/results/raw/
+
+# OS / editor
+.DS_Store
+.vscode/
+.idea/
