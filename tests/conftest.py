@@ -45,3 +45,27 @@ def isolated_registry(tmp_path, monkeypatch):
     registry.record({"version": 1, "file": "doc_classifier_v1.h5", "status": "promoted",
                      "metrics": {"accuracy": 0.5}}, promote=True)
     return models_dir
+
+
+@pytest.fixture
+def isolated_env(tmp_path, monkeypatch, isolated_registry):
+    """Temp data/runtime dirs with a tiny labelled dataset (3 classes x 2 images per split)."""
+    from src import config
+
+    data = tmp_path / "data"
+    runtime = tmp_path / "runtime"
+    paths = {
+        "DATA_DIR": data, "TRAIN_DIR": data / "train", "VAL_DIR": data / "val",
+        "TEST_DIR": data / "test", "UPLOAD_DIR": data / "uploads",
+        "RUNTIME_DIR": runtime, "RETRAIN_STATUS_PATH": runtime / "retrain_status.json",
+        "RETRAIN_LOCK_PATH": runtime / "retrain.lock",
+        "CANDIDATES_DIR": isolated_registry / "candidates",
+    }
+    for name, value in paths.items():
+        monkeypatch.setattr(config, name, value)
+    for split in ("train", "val", "test"):
+        for i, c in enumerate(CLASS_NAMES[:3]):
+            (data / split / c).mkdir(parents=True)
+            for j in range(2):
+                (data / split / c / f"{j}.png").write_bytes(make_image_bytes(value=60 * i + 10 * j))
+    return tmp_path
