@@ -17,6 +17,7 @@ Training happens in two stages:
 from __future__ import annotations
 
 import json
+import os
 from pathlib import Path
 
 import numpy as np
@@ -27,8 +28,8 @@ from sklearn.metrics import (
 
 from src.config import CLASS_NAMES, IMG_SIZE, LEARNING_RATE, NUM_CLASSES, SEED
 
-FINE_TUNE_LAYERS = 30
-FINE_TUNE_LR = 1e-5
+FINE_TUNE_LAYERS = int(os.getenv("FINE_TUNE_LAYERS", 30))
+FINE_TUNE_LR = float(os.getenv("FINE_TUNE_LR", 1e-5))
 
 
 def build_model(weights: str | None = "imagenet") -> tf.keras.Model:
@@ -73,7 +74,9 @@ def unfreeze_top_layers(model: tf.keras.Model, n_layers: int = FINE_TUNE_LAYERS)
 
 def _callbacks():
     return [tf.keras.callbacks.EarlyStopping(monitor="val_accuracy", patience=4,
-                                             restore_best_weights=True)]
+                                             restore_best_weights=True),
+            tf.keras.callbacks.ReduceLROnPlateau(monitor="val_loss", factor=0.5, patience=2,
+                                                 min_lr=1e-6, verbose=1)]
 
 
 def train(model, x_train, y_train, x_val, y_val, epochs: int, fine_tune_epochs: int = 0,

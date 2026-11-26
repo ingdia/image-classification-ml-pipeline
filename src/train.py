@@ -9,6 +9,7 @@ evaluates on the held-out data/test set and registers the result as model v1:
 """
 from __future__ import annotations
 
+import os
 import time
 
 from src import registry
@@ -16,7 +17,7 @@ from src.config import BATCH_SIZE, EPOCHS, MODELS_DIR, TEST_DIR, TRAIN_DIR, VAL_
 from src.model import build_model, evaluate, save_json, save_model, train
 from src.preprocessing import load_dataset
 
-FINE_TUNE_EPOCHS = 8
+FINE_TUNE_EPOCHS = int(os.getenv("FINE_TUNE_EPOCHS", 8))
 
 
 def main() -> None:
