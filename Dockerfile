@@ -25,6 +25,8 @@ HEALTHCHECK --interval=30s --timeout=5s --start-period=60s --retries=3 \
 CMD ["sh", "-c", "uvicorn src.api.main:app --host 0.0.0.0 --port ${PORT:-8000} --workers ${UVICORN_WORKERS:-1}"]
 
 FROM api AS dev
+# The dev container runs training/tests, not the API server
+HEALTHCHECK NONE
 COPY requirements-dev.txt .
 RUN pip install -r requirements-dev.txt
 COPY tests/ tests/

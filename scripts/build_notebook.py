@@ -28,9 +28,13 @@ risk prediction*, tabular data). Before a lender can score a credit application,
 applicant submits (invoices, budgets, forms, letters, resumes, ...) must be sorted. This notebook trains an
 **image** classifier that recognises the document type from a scanned page.
 
-**Dataset.** [RVL-CDIP small-200](https://huggingface.co/datasets/vaclavpechtor/rvl_cdip-small-200), a
-200-images-per-class subset of RVL-CDIP (Harley, Ufkes & Derpanis, *ICDAR 2015*). We keep the 9 document
-types a lender would receive with a credit application.
+**Dataset.** [RVL-CDIP](https://www.cs.cmu.edu/~aharley/rvl-cdip/) (Harley, Ufkes & Derpanis, *ICDAR 2015*):
+400,000 scanned business documents in 16 types, used here through the Kaggle copy
+[`abdellatifsassioui/rvlcdip`](https://www.kaggle.com/datasets/abdellatifsassioui/rvlcdip). We keep the 9
+types a lender receives with a credit application.
+
+**Where it runs.** On **Kaggle with a GPU** (the full dataset is mounted there and training takes minutes).
+Run locally, the notebook falls back to the small RVL-CDIP small-200 subset in `data/`.
 
 **Contents.** 1) Data acquisition · 2) Exploration · 3) Preprocessing · 4) Model creation · 5) Training ·
 6) Evaluation (accuracy, precision, recall, F1, confusion matrix, report) · 7) Prediction functions ·
@@ -38,34 +42,71 @@ types a lender would receive with a credit application.
 """)
 
 code("""
-import os, sys, json, time
+import os, sys, json, time, shutil, subprocess
 from pathlib import Path
-sys.path.insert(0, str(Path.cwd().parent))   # run from notebook/ -> import the project's src package
-os.chdir(Path.cwd().parent)
+
+ON_KAGGLE = Path("/kaggle/input").exists()
+REPO_URL = "https://github.com/ingdia/image-classification-ml-pipeline.git"
+REPO_BRANCH = "feature/image-classification-pipeline"
+if ON_KAGGLE:
+    # Get the project's src/ package from GitHub so training uses exactly the same code as the API
+    REPO = Path("/tmp/repo")
+    if not REPO.exists():
+        subprocess.run(["git", "clone", "--depth", "1", "-b", REPO_BRANCH, REPO_URL, str(REPO)], check=True)
+    os.environ["DATA_DIR"] = "/tmp/data"                      # sampled RVL-CDIP subset (not saved as output)
+    os.environ["MODELS_DIR"] = "/kaggle/working/models"       # model + metrics are the notebook's output
+    os.environ["RUNTIME_DIR"] = "/tmp/runtime"
+    os.environ["FINE_TUNE_LAYERS"] = "60"                     # more data -> we can safely unfreeze more layers
+else:
+    REPO = Path.cwd().parent if Path.cwd().name == "notebook" else Path.cwd()
+os.chdir(REPO)
+sys.path.insert(0, str(REPO))
 
 import numpy as np
 import matplotlib.pyplot as plt
 import seaborn as sns
 import tensorflow as tf
 
-from src.config import CLASS_NAMES, TRAIN_DIR, VAL_DIR, TEST_DIR, SAMPLES_DIR, MODELS_DIR, EPOCHS, BATCH_SIZE, IMG_SIZE
+from src.config import CLASS_NAMES, TRAIN_DIR, VAL_DIR, TEST_DIR, SAMPLES_DIR, MODELS_DIR, DATA_DIR, IMG_SIZE
 from src import preprocessing, model as M, registry
 from src.dataset_stats import compute_stats
 
 sns.set_theme(style="whitegrid")
-print("TensorFlow", tf.__version__, "| classes:", CLASS_NAMES)
+print("TensorFlow", tf.__version__, "| Keras", tf.keras.__version__, "| GPU:", tf.config.list_physical_devices("GPU"))
+print("on Kaggle:", ON_KAGGLE, "| data:", DATA_DIR, "| models:", MODELS_DIR)
 """)
 
 md("""
 ## 1. Data acquisition
-`scripts/download_data.py` downloads only our 9 classes from Hugging Face, converts the TIFF scans to
-grayscale PNG and builds the splits:
 
-* source *train* (160/class) → our **train (80%)** and **validation (20%)**, stratified with a fixed seed
-* source *validation* (40/class) → our **test** set, held out and never used for training or model selection
+* **RVL-CDIP small-200** (`scripts/download_data.py`, from Hugging Face): 200 images per type. Its 40-per-type
+  test split is the set the **deployed API** evaluates on and uses in the retraining promotion gate, so we
+  download it here too and also evaluate the model on it.
+* **Full RVL-CDIP** (`scripts/build_rvl_subset.py`, Kaggle input): from each *official* split we sample
+  **2,000 train / 250 validation / 250 test** images per type with a fixed seed, and convert the TIFF scans to
+  grayscale PNG. Every image that also appears in small-200 is excluded, so the API's test set stays unseen.
 """)
 
 code("""
+SMALL200 = Path("/tmp/small200")
+if ON_KAGGLE:
+    t0 = time.time()
+    # 1) small-200 (Hugging Face) -> /tmp/small200/{train,val,test,samples}
+    subprocess.run([sys.executable, "scripts/download_data.py"], check=True,
+                   env={**os.environ, "DATA_DIR": str(SMALL200)})
+    # 2) full RVL-CDIP sample -> /tmp/data/{train,val,test}
+    # the dataset is mounted under /kaggle/input/<...>/rvlcdip; avoid walking its 400k image files
+    rvl_root = next(p.parent.parent for pattern in ("*/labels/train.txt", "*/*/labels/train.txt", "*/*/*/labels/train.txt")
+                    for p in Path("/kaggle/input").glob(pattern))
+    subprocess.run([sys.executable, "scripts/build_rvl_subset.py", "--rvl-root", str(rvl_root),
+                    "--out", str(DATA_DIR), "--train", "2000", "--val", "250", "--test", "250",
+                    "--exclude-dir", str(SMALL200 / "raw"), "--workers", str(os.cpu_count())], check=True)
+    shutil.copytree(REPO / "data" / "samples", SAMPLES_DIR, dirs_exist_ok=True)
+    print(f"data acquisition: {time.time() - t0:.0f}s")
+    APP_TEST_DIR = SMALL200 / "test"
+else:
+    APP_TEST_DIR = TEST_DIR
+
 stats = compute_stats()
 dist = stats["distribution"]
 for split in ("train", "val", "test"):
@@ -96,9 +137,9 @@ df_dist
 """)
 
 md("""
-**Interpretation.** The dataset is perfectly balanced (128 train / 32 val / 40 test per type), so accuracy is
-a fair headline metric and no class weighting or resampling is needed. In real lending data, invoices and
-forms would dominate; this is a limitation discussed in the report.
+**Interpretation.** The sample is balanced by design (the same number of images per type in every split), so
+accuracy is a fair headline metric and no class weighting or resampling is needed. In real lending data,
+invoices and forms would dominate, which is a limitation of this setup.
 """)
 
 md("### 2.3 Feature 2 – page geometry (width, height, aspect ratio)")
@@ -151,7 +192,7 @@ Implemented in `src/preprocessing.py` and inside the model (`src/model.py`):
 | Convert to grayscale, then repeat to 3 channels | `load_image` | scans are black & white; MobileNetV2 expects RGB |
 | Resize to 224×224 | `load_image` | MobileNetV2's native input size |
 | Label encoding (name → index) | `encode_label` | fixed class order shared by training and the API |
-| Augmentation: rotation ±2%, shift ±5%, zoom ±10% (training only) | model layer | imitates crooked scans → less overfitting with only 128 images/class |
+| Augmentation: rotation ±2%, shift ±5%, zoom ±10% (training only) | model layer | imitates crooked scans → less overfitting |
 | Normalise to [-1, 1] | model layer | MobileNetV2's expected range; inside the model so prediction can never use a different scaling |
 """)
 
@@ -160,7 +201,8 @@ t0 = time.time()
 x_train, y_train = preprocessing.load_dataset(TRAIN_DIR)
 x_val, y_val = preprocessing.load_dataset(VAL_DIR)
 x_test, y_test = preprocessing.load_dataset(TEST_DIR)
-print(f"train {x_train.shape}, val {x_val.shape}, test {x_test.shape}  dtype={x_train.dtype}  ({time.time()-t0:.0f}s)")
+x_app, y_app = preprocessing.load_dataset(APP_TEST_DIR)   # the deployed API's test set
+print(f"train {x_train.shape}, val {x_val.shape}, test {x_test.shape}, api-test {x_app.shape}  dtype={x_train.dtype}  ({time.time()-t0:.0f}s)")
 """)
 
 code("""
@@ -181,8 +223,8 @@ plt.show()
 
 md("""
 ## 4. Model creation – MobileNetV2 transfer learning
-**Why MobileNetV2?** With only 128 training images per class, training a CNN from scratch would overfit.
-MobileNetV2 was pretrained on 1.2M ImageNet photos and already detects edges, lines, blocks and textures.
+**Why MobileNetV2?** Even with 2,000 images per type, training a CNN from scratch would overfit and need
+far more compute. MobileNetV2 was pretrained on 1.2M ImageNet photos and already detects edges, lines, blocks and textures.
 We reuse those features and train a new 9-class head. It is small (~3.5M parameters, ~10 MB) and fast on
 CPU, which matters for serving many requests in the load test.
 """)
@@ -195,13 +237,14 @@ model.summary(show_trainable=True)
 md("""
 ## 5. Training
 **Stage 1 – feature extraction:** backbone frozen, only the classifier head is trained (Adam, lr 1e-3).
-**Stage 2 – fine-tuning:** the top 30 backbone layers are unfrozen with lr 1e-5 so they adapt from photos to
+**Stage 2 – fine-tuning:** the top 60 backbone layers (30 when run locally on the small dataset) are unfrozen with lr 1e-5 so they adapt from photos to
 document layouts. Early stopping on validation accuracy (patience 4) restores the best weights.
 """)
 
 code("""
 t0 = time.time()
-history = M.train(model, x_train, y_train, x_val, y_val, epochs=EPOCHS, fine_tune_epochs=8, batch_size=BATCH_SIZE)
+EPOCHS, FINE_TUNE_EPOCHS, BATCH = (15, 15, 64) if ON_KAGGLE else (15, 8, 32)
+history = M.train(model, x_train, y_train, x_val, y_val, epochs=EPOCHS, fine_tune_epochs=FINE_TUNE_EPOCHS, batch_size=BATCH)
 train_seconds = time.time() - t0
 print(f"training time: {train_seconds/60:.1f} min")
 """)
@@ -222,7 +265,13 @@ useful) and improves again after fine-tuning starts. A gap where training accura
 accuracy would indicate overfitting; augmentation, dropout and early stopping are there to limit it.
 """)
 
-md("## 6. Evaluation on the held-out test set")
+md("""
+## 6. Evaluation on the held-out test sets
+* **6.1 RVL-CDIP test sample** – 250 unseen documents per type from the official test split (main result).
+* **6.2 API test set** – the 40-per-type small-200 test set that the deployed API re-evaluates on
+  (`POST /evaluate`) and that the retraining promotion gate uses. Its metrics are saved as `models/metrics.json`.
+""")
+md("### 6.1 RVL-CDIP test sample")
 
 code("""
 metrics = M.evaluate(model, x_test, y_test)
@@ -248,6 +297,14 @@ code("""
 # Most frequent confusions (off-diagonal cells)
 pairs = [(CLASS_NAMES[i], CLASS_NAMES[j], int(cm[i, j])) for i in range(len(cm)) for j in range(len(cm)) if i != j and cm[i, j]]
 pd.DataFrame(sorted(pairs, key=lambda p: -p[2])[:8], columns=["actual", "predicted", "count"])
+""")
+
+md("### 6.2 API test set (used in production)")
+
+code("""
+app_metrics = M.evaluate(model, x_app, y_app)
+pd.DataFrame({"RVL-CDIP test sample": {k: metrics[k] for k in ("accuracy", "precision_macro", "recall_macro", "f1_macro", "n_samples")},
+              "API test set": {k: app_metrics[k] for k in ("accuracy", "precision_macro", "recall_macro", "f1_macro", "n_samples")}}).round(3)
 """)
 
 md("### Interpretation of the results\nSee the cell below – it is generated from the actual numbers.")
@@ -298,13 +355,16 @@ code("""
 version = registry.next_version()
 filename = f"doc_classifier_v{version}.h5"
 M.save_model(model, MODELS_DIR / filename)
-M.save_json(metrics, MODELS_DIR / "metrics.json")
+M.save_json(app_metrics, MODELS_DIR / "metrics.json")              # same test set the API evaluates on
+M.save_json(metrics, MODELS_DIR / "metrics_rvl_test.json")
+if ON_KAGGLE:
+    (MODELS_DIR / "dataset_stats.json").write_text(json.dumps(stats))  # dashboard visualisations
 M.save_json(history, MODELS_DIR / "history.json")
 registry.record({
     "version": version, "file": filename, "kind": "initial", "status": "promoted",
     "created_at": registry.now_iso(), "train_samples": int(len(x_train)),
     "training_seconds": round(train_seconds, 1),
-    "metrics": {k: metrics[k] for k in ("accuracy", "precision_macro", "recall_macro", "f1_macro")},
+    "metrics": {k: app_metrics[k] for k in ("accuracy", "precision_macro", "recall_macro", "f1_macro")},
 }, promote=True)
 print("saved", MODELS_DIR / filename, f"{(MODELS_DIR / filename).stat().st_size/1e6:.1f} MB")
 """)
