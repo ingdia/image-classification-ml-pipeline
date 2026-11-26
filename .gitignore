@@ -42,3 +42,6 @@ locust/results/raw/
 .DS_Store
 .vscode/
 .idea/
+
+# Precomputed dataset statistics and demo samples are committed
+!data/dataset_stats.json
