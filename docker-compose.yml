@@ -23,13 +23,22 @@ services:
         required: false
     environment:
       UVICORN_WORKERS: ${UVICORN_WORKERS:-1}
+      # TensorFlow thread pools sized to the container's CPU share
+      TF_NUM_INTRAOP_THREADS: ${API_CPUS:-2}
+      TF_NUM_INTEROP_THREADS: 1
+    # Each replica gets a fixed CPU share, like one small server. Scaling to N
+    # replicas therefore adds real capacity, which is what the load test compares.
+    cpus: ${API_CPUS:-2}
     volumes: *shared-volumes
     expose:
       - "8000"
     restart: unless-stopped
 
   nginx:
-    image: nginx:1.27-alpine
+    # nginx image that also contains the built React dashboard (frontend/Dockerfile)
+    build:
+      context: ./frontend
+    image: docclf-web:local
     depends_on:
       - api
     ports:
