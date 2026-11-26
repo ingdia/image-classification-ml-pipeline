@@ -1,0 +1,62 @@
+# Local orchestration
+#   docker compose up -d --build                  -> 1 API container behind nginx on http://localhost:8080
+#   docker compose up -d --scale api=3            -> 3 API containers, nginx round-robins between them
+#   docker compose --profile loadtest run --rm locust ...   -> load test (see locust/README)
+#   docker compose --profile dev run --rm dev pytest         -> tests / training / notebook
+name: docclf
+
+x-shared-volumes: &shared-volumes
+  # Shared by every API replica: the live model + registry, the data (for retraining)
+  # and runtime state (retraining status/lock), so all containers see the same model.
+  - ./models:/app/models
+  - ./data:/app/data
+  - ./runtime:/app/runtime
+
+services:
+  api:
+    build:
+      context: .
+      target: api
+    image: docclf-api:local
+    env_file:
+      - path: .env
+        required: false
+    environment:
+      UVICORN_WORKERS: ${UVICORN_WORKERS:-1}
+    volumes: *shared-volumes
+    expose:
+      - "8000"
+    restart: unless-stopped
+
+  nginx:
+    image: nginx:1.27-alpine
+    depends_on:
+      - api
+    ports:
+      - "${HTTP_PORT:-8080}:80"
+    volumes:
+      - ./docker/nginx.conf:/etc/nginx/conf.d/default.conf:ro
+    restart: unless-stopped
+
+  dev:
+    profiles: ["dev"]
+    build:
+      context: .
+      target: dev
+    image: docclf-dev:local
+    volumes:
+      - .:/app
+    working_dir: /app
+    command: ["pytest", "-q"]
+
+  locust:
+    profiles: ["loadtest"]
+    image: locustio/locust:2.32.4
+    volumes:
+      - ./locust:/mnt/locust
+      - ./data/samples:/mnt/samples:ro
+    working_dir: /mnt/locust
+    environment:
+      SAMPLES_DIR: /mnt/samples
+    depends_on:
+      - nginx

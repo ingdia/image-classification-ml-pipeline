@@ -1,0 +1,9 @@
+# Development dependencies: notebook evaluation and tests
+-r requirements.txt
+matplotlib==3.9.3
+seaborn==0.13.2
+pandas==2.2.3
+jupyter==1.1.1
+nbconvert==7.16.4
+pytest==8.3.4
+httpx==0.28.1
