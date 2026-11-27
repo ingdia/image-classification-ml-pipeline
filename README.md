@@ -31,18 +31,22 @@ requires.
 
 ## 2. Dataset
 
-* **Source:** [RVL-CDIP small-200](https://huggingface.co/datasets/vaclavpechtor/rvl_cdip-small-200) on
-  Hugging Face. It is a 200-image-per-class subset of **RVL-CDIP** (Harley, Ufkes & Derpanis, *"Evaluation
-  of Deep Convolutional Nets for Document Image Classification and Retrieval"*, ICDAR 2015;
-  [homepage](https://www.cs.cmu.edu/~aharley/rvl-cdip/)).
+* **Source:** **RVL-CDIP** (Harley, Ufkes & Derpanis, *"Evaluation of Deep Convolutional Nets for Document
+  Image Classification and Retrieval"*, ICDAR 2015; [homepage](https://www.cs.cmu.edu/~aharley/rvl-cdip/)):
+  400,000 scanned business documents in 16 types. It is used in two forms:
+  * **Training data:** the full dataset on Kaggle,
+    [`abdellatifsassioui/rvlcdip`](https://www.kaggle.com/datasets/abdellatifsassioui/rvlcdip).
+    `scripts/build_rvl_subset.py` samples **2,000 train / 250 validation / 250 test** images per type from
+    the official splits (18,000 / 2,250 / 2,250 images). The model is trained in a Kaggle GPU notebook.
+  * **API data:** [RVL-CDIP small-200](https://huggingface.co/datasets/vaclavpechtor/rvl_cdip-small-200)
+    on Hugging Face (200 per type). `scripts/download_data.py` downloads it into `data/train`, `data/val` and
+    `data/test`. Its **test split (40 per type, 360 images)** is what the running API evaluates on and what
+    the retraining promotion gate uses. Its images were excluded from the Kaggle sample, so it stays unseen.
 * **Classes used:** the 9 of 16 types relevant to lending. Advertisements, scientific papers, news articles
   and similar types are excluded.
-* **Splits:** 128 train / 32 validation / 40 test images per class, giving **1,152 / 288 / 360 images**
-  (1,800 in total). The test set is the source's validation split and is never used for training or model
-  selection.
-* The full dataset is **not committed** because of its size. `scripts/download_data.py` downloads it and
-  rebuilds `data/train`, `data/val` and `data/test`. Eighteen sample test images (2 per type) are committed
-  in `data/samples/`.
+* The datasets are **not committed** because of their size. Eighteen sample test images (2 per type) and the
+  precomputed dataset statistics behind the dashboard (`data/dataset_stats.json`, 22,500 images) are
+  committed.
 
 ## 3. Architecture
 
@@ -84,7 +88,7 @@ frontend/   React dashboard + Dockerfile
 docker/     nginx.conf
 locust/     locustfile.py  plot_results.py  results/
 tests/      pytest suite (preprocessing, prediction, registry, upload validation, retraining, API)
-scripts/    download_data.py  build_notebook.py  run_load_tests.sh
+scripts/    download_data.py  build_rvl_subset.py  build_notebook.py  run_load_tests.sh  start.sh
 ```
 
 ## 5. Setup and running
@@ -174,11 +178,109 @@ curl -F "file=@data/samples/invoice_0000327323.png" http://localhost:8080/api/pr
 
 ## 8. Model results
 
-_Filled in from the final executed notebook. See section 6 of the notebook and `models/metrics.json`._
+Model **v1** is MobileNetV2 (ImageNet weights) trained on a **Kaggle T4 GPU** in two stages: first the
+classifier head, then the top 60 layers fine-tuned. Training used **18,000 images** (2,000 per type) sampled
+from the official splits of the full RVL-CDIP, ran for 27 epochs and took 17.7 minutes. The run is in
+[`notebook/document_classification.ipynb`](notebook/document_classification.ipynb) with all its outputs.
+
+It is evaluated on two held-out test sets that were never used for training or model selection:
+
+| Metric | RVL-CDIP test sample (2,250 images) | API test set (360 images) |
+|---|---|---|
+| Accuracy | **71.6 %** | **73.6 %** |
+| Precision (macro) | 74.2 % | 75.3 % |
+| Recall (macro) | 71.6 % | 73.6 % |
+| F1-score (macro) | 71.6 % | 73.6 % |
+
+Chance level is 11.1 % for 9 balanced types. The API test set is the one the deployed API re-scores with
+**Evaluate live model** and uses in the retraining promotion gate. Its metrics are in `models/metrics.json`;
+the larger sample's are in `models/metrics_rvl_test.json`.
+
+**Why the dataset was enlarged.** The first version was trained on RVL-CDIP small-200, with only 128 images
+per type, and reached **52.2 %**. Training on 2,000 per type from the full RVL-CDIP (via Kaggle) and
+fine-tuning more layers raised accuracy by about 20 points. The 3,603 small-200 images were excluded from the
+sample, so the API test set stays unseen.
+
+Per type on the RVL-CDIP test sample:
+
+| Type | Precision | Recall | F1 |
+|---|---|---|---|
+| email | 0.97 | 0.86 | **0.91** |
+| resume | 0.96 | 0.72 | **0.83** |
+| handwritten | 0.62 | 0.97 | **0.76** |
+| invoice | 0.74 | 0.70 | 0.72 |
+| budget | 0.67 | 0.67 | 0.67 |
+| letter | 0.64 | 0.70 | 0.67 |
+| form | 0.63 | 0.69 | 0.66 |
+| questionnaire | 0.61 | 0.66 | 0.63 |
+| memo | 0.85 | 0.47 | 0.61 |
+
+Confusion matrix on the RVL-CDIP test sample (rows = true type, columns = predicted type, 250 per row):
+
+| true \ pred | bud | ema | for | han | inv | let | mem | que | res |
+|---|---|---|---|---|---|---|---|---|---|
+| budget | **167** | 0 | 23 | 12 | 17 | 3 | 3 | 25 | 0 |
+| email | 4 | **214** | 9 | 4 | 1 | 6 | 1 | 8 | 3 |
+| form | 16 | 1 | **173** | 21 | 18 | 6 | 4 | 11 | 0 |
+| handwritten | 1 | 0 | 1 | **243** | 1 | 0 | 0 | 4 | 0 |
+| invoice | 28 | 0 | 17 | 14 | **175** | 9 | 1 | 6 | 0 |
+| letter | 6 | 2 | 5 | 35 | 10 | **175** | 9 | 6 | 2 |
+| memo | 12 | 1 | 15 | 17 | 5 | 59 | **118** | 22 | 1 |
+| questionnaire | 8 | 2 | 24 | 38 | 9 | 1 | 1 | **166** | 1 |
+| resume | 9 | 0 | 6 | 9 | 1 | 16 | 2 | 26 | **181** |
+
+**Interpretation**
+* **Types with a distinctive layout are recognised reliably.** When the model says *email* or *resume* it
+  is right 96–97 % of the time.
+* **The most common error is memo → letter (59 of 250 memos).** Both are blocks of typed paragraphs, and the
+  "MEMORANDUM" header is too small to read at 224×224. Memos therefore have high precision (0.85) but low
+  recall (0.47).
+* **Handwritten absorbs messy pages.** It finds 97 % of handwritten notes, but questionnaires and letters
+  with handwriting on them are also predicted as handwritten (precision 0.62).
+* **Grid documents** (budget, invoice, form, questionnaire) are confused with one another, as the
+  ink-density analysis in the notebook predicted.
+* Training accuracy (81 %) is about 11 points above validation accuracy (70 %): mild overfitting, limited by
+  augmentation, dropout and early stopping. In production, low-confidence pages should go to a human
+  reviewer.
 
 ## 9. Load testing (flood request simulation)
 
-_Filled in with measured Locust results._
+[Locust](https://locust.io) simulates users who each upload a random scanned document to `POST /api/predict`
+(plus an occasional health check), waiting 0.5–1.5 s between requests. The same test ran against
+**1, 2 and 3 API containers** behind the nginx load balancer, with **10 and 50 concurrent users**, for 60 s
+each. Each container is limited to 2 CPU cores, like one small server. A request that takes longer than 30 s
+counts as a failure.
+
+```bash
+scripts/run_load_tests.sh 60s "10 50" "1 2 3"   # runs all 6 tests, raw CSVs -> locust/results/raw/
+python locust/plot_results.py                    # -> locust/results/summary.md + scaling.png
+```
+
+| Containers | Users | Requests | Failure rate | Throughput (req/s) | Avg (ms) | Median (ms) | p95 (ms) | p99 (ms) |
+|---|---|---|---|---|---|---|---|---|
+| 1 | 10 | 535 | 0.0% | 9.1 | 116 | 85 | 300 | 530 |
+| 2 | 10 | 549 | 0.0% | 9.3 | 84 | 76 | 150 | 290 |
+| 3 | 10 | 546 | 0.0% | 9.3 | 104 | 96 | 210 | 320 |
+| 1 | 50 | 1,207 | 0.0% | 20.4 | 1,342 | 1,400 | 2,200 | 2,400 |
+| 2 | 50 | 1,579 | 0.0% | 26.7 | 825 | 730 | 1,900 | 2,200 |
+| 3 | 50 | 1,771 | 0.0% | 29.9 | 627 | 560 | 1,500 | 2,000 |
+
+![Response time and throughput vs number of containers](locust/results/scaling.png)
+
+**What the results show**
+* **10 users: one container is enough.** Users only send about 9 requests per second, which one container
+  handles with a median of 85 ms. Adding containers barely changes anything, because nothing is queuing.
+* **50 users: one container saturates.** Demand rises to about 30 requests per second. One container
+  reaches only 20 req/s, so requests queue and the average response time jumps to 1.3 s.
+* **Scaling out fixes it.** With 3 containers, throughput rises by **47 %** (20.4 → 29.9 req/s), the average
+  response time falls by **53 %** (1,342 → 627 ms) and the median by 60 % (1,400 → 560 ms). No request failed
+  in any test. The load balancer spreads requests across the replicas, as shown by the container id that
+  answers each request (`X-Upstream` header and `/health`).
+* **Compiled inference matters as much as scaling.** The first version called the Keras model eagerly
+  (~300 ms per image); the API now runs it through a compiled `tf.function` (~45 ms). Before that change, a
+  single container already took 3.6 s (median) at 10 users.
+* The test machine has a fixed number of CPU cores shared by all containers and by Locust, so the gain from
+  each extra container shrinks. On a cloud platform, each replica gets its own CPU.
 
 ## 10. Deployment
 
@@ -186,8 +288,8 @@ _Filled in after deployment._
 
 ## 11. Limitations
 
-* With 1,152 training images and pages downscaled to 224×224, small text is unreadable, so the model relies
-  on layout. Visually similar types (form vs. questionnaire, letter vs. memo) are often confused.
+* Pages are downscaled to 224×224, so small text is unreadable and the model relies on layout. Visually
+  similar types (memo vs. letter, form vs. questionnaire) are the most confused.
 * The documents are 1980s–90s US corporate scans (RVL-CDIP), not African bank documents.
 * Retraining runs in a thread inside the API container. A production system would use a job queue
   (for example Celery + Redis) and a model registry service (for example MLflow).
