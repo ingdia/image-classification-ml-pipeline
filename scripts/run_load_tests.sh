@@ -2,6 +2,8 @@
 # Runs the same Locust test against 1, 2 and 3 API containers and at several user counts.
 # Usage: scripts/run_load_tests.sh [duration=60s] [user counts="10 50"] [container counts="1 2 3"]
 # Raw CSVs -> locust/results/raw/, summary + charts via: python locust/plot_results.py
+# By default Locust runs in its own container. Set LOCUST_CMD (e.g. LOCUST_CMD=locust) to run a
+# locally installed Locust instead, which leaves all of Docker's memory to the API replicas.
 set -euo pipefail
 cd "$(dirname "$0")/.."
 
@@ -33,9 +35,15 @@ for n in $CONTAINERS; do
 
   for u in $USERS; do
     echo "    running $u users for $DURATION"
-    docker compose --profile loadtest run --rm --no-deps locust -f locustfile.py --headless \
-      --host http://nginx -u "$u" -r 10 -t "$DURATION" --only-summary \
-      --csv "results/raw/c${n}_u${u}" > "locust/results/raw/c${n}_u${u}.log" 2>&1
+    if [ -n "${LOCUST_CMD:-}" ]; then
+      SAMPLES_DIR=data/samples $LOCUST_CMD -f locust/locustfile.py --headless \
+        --host "http://localhost:${HTTP_PORT:-8080}" -u "$u" -r 10 -t "$DURATION" --only-summary \
+        --csv "locust/results/raw/c${n}_u${u}" > "locust/results/raw/c${n}_u${u}.log" 2>&1 || true   # locust exits 1 when requests fail
+    else
+      docker compose --profile loadtest run --rm --no-deps locust -f locustfile.py --headless \
+        --host http://nginx -u "$u" -r 10 -t "$DURATION" --only-summary \
+        --csv "results/raw/c${n}_u${u}" > "locust/results/raw/c${n}_u${u}.log" 2>&1 || true
+    fi
     grep -E "Aggregated" "locust/results/raw/c${n}_u${u}.log" | tail -1 || true
   done
 done
