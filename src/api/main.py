@@ -34,6 +34,25 @@ app = FastAPI(
 )
 app.add_middleware(CORSMiddleware, allow_origins=["*"], allow_methods=["*"], allow_headers=["*"])
 
+
+class StripApiPrefix:
+    """Accept /api/<path> as well as /<path>.
+
+    Locally nginx strips the /api prefix before proxying. In the cloud the dashboard calls the
+    API service directly, so the API itself accepts the prefixed paths too.
+    """
+
+    def __init__(self, asgi_app):
+        self.app = asgi_app
+
+    async def __call__(self, scope, receive, send):
+        if scope["type"] == "http" and scope["path"].startswith("/api/"):
+            scope = dict(scope, path=scope["path"][4:], raw_path=scope["path"][4:].encode())
+        await self.app(scope, receive, send)
+
+
+app.add_middleware(StripApiPrefix)
+
 predictor = get_predictor()
 
 

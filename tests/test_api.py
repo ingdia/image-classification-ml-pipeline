@@ -91,3 +91,10 @@ def test_metrics_and_evaluate(client):
     body = client.post("/evaluate").json()
     assert body["n_samples"] == 6 and body["model_version"] == 1
     assert len(body["confusion_matrix"]) == len(CLASS_NAMES)
+
+
+
+def test_api_prefix_is_accepted(client):
+    # the cloud dashboard calls the API directly with the /api prefix that nginx strips locally
+    resp = client.get("/api/health")
+    assert resp.status_code == 200 and resp.json()["model_version"] == 1
