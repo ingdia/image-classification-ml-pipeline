@@ -156,10 +156,11 @@ feat[["width", "height", "aspect_ratio"]].round(2)
 """)
 
 md("""
-**Interpretation.** Every scan is exactly 1000 px high (the dataset was normalised this way) with widths of
-roughly 750–800 px (class means 756–774 px) - a portrait page with aspect ratio ≈ 1.3. Page **shape carries almost no information about the class**, so the model has
-to learn from the *layout* inside the page. Resizing to a square 224×224 slightly squashes pages, but it is
-the same distortion for every class, so it does not bias the model.
+**Interpretation.** Every scan is exactly 1000 px high (RVL-CDIP was normalised this way) with widths of
+roughly 750–800 px (class means 755–772 px): a portrait page with aspect ratio ≈ 1.30–1.32 for every type.
+Page **shape carries almost no information about the class**, so the model has to learn from the *layout*
+inside the page. Resizing to a square 224×224 slightly squashes pages, but it is the same distortion for every
+class, so it does not bias the model.
 """)
 
 md("### 2.4 Feature 3 – ink density and brightness")
@@ -173,12 +174,12 @@ feat[["ink_density", "brightness"]].round(3)
 """)
 
 md("""
-**Interpretation.** Pages are mostly white paper (mean brightness 236–249 out of 255), but the amount of ink
-differs by type. Handwritten notes (7.1% dark pixels), invoices (6.9%), forms (6.8%) and resumes (6.6%) are the
-densest: handwriting strokes, ruled boxes, tables and compact sections. Emails are by far the sparsest (2.2%):
-short printed messages with lots of white space, so they should be easy to recognise. Budgets (4.2%) are
-sparser than expected - mostly thin columns of numbers. Letters (5.3%) and memos (5.1%) are almost
-identical in ink density and layout, so this is where we expect the most confusion. Ink density alone cannot
+**Interpretation.** Pages are mostly white paper (mean brightness 237–250 out of 255), but the amount of ink
+differs by type. Handwritten notes (7.0% dark pixels), resumes (6.4%), questionnaires (6.2%), forms and
+invoices (5.9%) are the densest: handwriting strokes, ruled boxes, tables and compact sections. Emails are by
+far the sparsest (2.0%): short printed messages with lots of white space, so they should be easy to recognise.
+Budgets (4.3%) are sparser than expected, mostly thin columns of numbers. Letters (5.5%) and memos (4.9%) are
+close in ink density and layout, so this is where we expect the most confusion. Ink density alone cannot
 separate all 9 types, which is why a CNN that learns *spatial layout* is needed rather than simple statistics.
 """)
 
@@ -260,9 +261,11 @@ plt.show()
 """)
 
 md("""
-**Reading the curves.** Validation accuracy rises quickly in stage 1 (the pretrained features are already
-useful) and improves again after fine-tuning starts. A gap where training accuracy is far above validation
-accuracy would indicate overfitting; augmentation, dropout and early stopping are there to limit it.
+**Reading the curves.** In stage 1 (frozen backbone) validation accuracy climbs to about 56%: the ImageNet
+features are useful but were learned on photos. Once the top 60 layers are fine-tuned it rises further to
+**≈70%**, so adapting the backbone to document layouts is what makes the difference. Training accuracy ends
+at ≈81%, about 11 points above validation: mild overfitting, limited by augmentation, dropout and early
+stopping, which restores the best weights.
 """)
 
 md("""
@@ -322,10 +325,19 @@ print("Macro precision ≈ recall means errors are spread evenly rather than one
 md("""
 **What this means for a lender.** Because the classes are balanced, macro-averaged precision, recall and
 F1 weigh every document type equally. Precision answers *"when the model says invoice, how often is it
-really an invoice?"*; recall answers *"of all invoices, how many did it find?"*. Confusions concentrate between
-visually similar text-only types (letter / memo / email), while structured types with distinctive layouts are
-recognised more reliably. In production, low-confidence predictions should be routed to a human reviewer
-rather than processed automatically.
+really an invoice?"*; recall answers *"of all invoices, how many did it find?"*.
+
+* **Reliable:** emails (F1 0.91) and resumes (0.83) have distinctive layouts, and when the model says
+  "resume" or "email" it is right 96–97% of the time.
+* **Most common confusion: memo → letter (59 of 250 memos).** Both are a block of typed paragraphs; the memo
+  header is too small to read at 224×224. Memos therefore have high precision (0.85) but low recall (0.47).
+* **Handwritten absorbs messy pages:** it finds 97% of handwritten notes, but scanned questionnaires and
+  letters with handwriting on them are also predicted as handwritten (precision 0.62).
+* **Grid documents** (budget / invoice / form / questionnaire) are confused with each other, as the ink-density
+  analysis predicted.
+
+In production, low-confidence predictions should be routed to a human reviewer rather than processed
+automatically, and the most confused pairs are where uploaded data and retraining help most.
 """)
 
 md("## 7. Prediction functions")
