@@ -12,8 +12,11 @@ kaggle.json
 *.pem
 *.key
 
-# Data is mounted as a volume, not baked into the image
-data/
+# Data is mounted as a volume (locally) or downloaded at start (cloud), not baked into the image.
+# Only the small demo samples and the precomputed dataset statistics are included.
+data/*
+!data/samples
+!data/dataset_stats.json
 runtime/
 models/candidates/
 

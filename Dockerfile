@@ -17,12 +17,14 @@ RUN pip install --upgrade pip && pip install -r requirements.txt
 COPY src/ src/
 COPY scripts/ scripts/
 COPY models/ models/
+# Committed demo samples + precomputed dataset statistics (for the dashboard's Data tab)
+COPY data/ data/
 
 EXPOSE 8000
 HEALTHCHECK --interval=30s --timeout=5s --start-period=60s --retries=3 \
     CMD python -c "import urllib.request; urllib.request.urlopen('http://localhost:8000/health')" || exit 1
 
-CMD ["sh", "-c", "uvicorn src.api.main:app --host 0.0.0.0 --port ${PORT:-8000} --workers ${UVICORN_WORKERS:-1}"]
+CMD ["sh", "scripts/start.sh"]
 
 FROM api AS dev
 # The dev container runs training/tests, not the API server
@@ -31,3 +33,6 @@ COPY requirements-dev.txt .
 RUN pip install -r requirements-dev.txt
 COPY tests/ tests/
 COPY notebook/ notebook/
+
+# Final stage = production API. Platforms that build the last stage (e.g. Railway) get the API image.
+FROM api AS production
